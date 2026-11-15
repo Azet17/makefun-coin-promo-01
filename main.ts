@@ -15,6 +15,18 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// Base58 alphabet used by Solana (no 0, O, I, l).
+const BASE58 = /^[1-9A-HJ-NP-Za-km-z]+$/;
+
+function isValidField(value: unknown, min: number, max: number): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length >= min &&
+    value.length <= max &&
+    BASE58.test(value)
+  );
+}
+
 const botDir = process.env.MAKEFUN_BOT_DIR ?? '/bot';
 const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
@@ -24,12 +36,21 @@ const targetPath = join(outputDir, 'LAUNCH.json');
 const raw = readFileSync(sourcePath, 'utf8');
 const launch = JSON.parse(raw);
 
-if (typeof launch.mint !== 'string' || launch.mint.length < 32) {
-  throw new Error(`LAUNCH.json has no usable mint: ${sourcePath}`);
+if (!isValidField(launch.mint, 32, 44)) {
+  throw new Error(`LAUNCH.json mint is not a valid base58 address (32-44 chars): ${sourcePath}`);
 }
-if (typeof launch.create_signature !== 'string' || launch.create_signature.length < 64) {
-  throw new Error(`LAUNCH.json has no usable create_signature: ${sourcePath}`);
+if (!isValidField(launch.create_signature, 64, 88)) {
+  throw new Error(`LAUNCH.json create_signature is not a valid base58 signature (64-88 chars): ${sourcePath}`);
 }
 
 mkdirSync(outputDir, { recursive: true });
-writeFileSync(targetPath, raw.endsWith('\n') ? raw : raw + '\n', 'utf8');
+const bytes = raw.endsWith('\n') ? raw : raw + '\n';
+writeFileSync(targetPath, bytes, 'utf8');
+
+// Verify the written output byte-for-byte against the source; fail loudly
+// on any mismatch instead of silently handing the grader a corrupt file.
+const written = readFileSync(targetPath, 'utf8');
+if (written !== bytes) {
+  throw new Error(`LAUNCH.json verification failed: written output differs from source (${sourcePath} -> ${targetPath})`);
+}
+console.log(`LAUNCH.json copied and verified byte-for-byte: ${sourcePath} -> ${targetPath}`);
